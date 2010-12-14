@@ -1,0 +1,61 @@
+#!/bin/bash
+THREADS=5
+FIFO=/tmp/clippy.fifo.$$
+QUEUE=/tmp/clippy.queue.$$
+
+runloop() {
+    id=$1
+    cmd=$2
+    fifo=$3
+    mkfifo $fifo 2>/dev/null
+    echo
+    echo [$id] Thread started [$cmd / $fifo]...
+    while true ; do
+        args=`head -n1 $fifo`
+        if [[ $args != '' ]] ; then
+            echo "[$id][ START  ] $cmd $args"
+            $cmd "$args"
+            echo "[$id][ FINISH ] $cmd $args"
+        fi
+    done
+}
+
+spinfifo() {
+    touch $QUEUE
+    mkfifo $FIFO 2>/dev/null
+    echo "Spinfifo $$: $QUEUE => $FIFO"
+    while read x < <(tail -n0 -f $QUEUE) ; do
+        echo "Spinfifo $$: got $x"
+        echo "$x" > $FIFO
+    done
+}
+
+if [[ $1 =~ ^-[0-9]+$ ]] ; then
+    id=$1
+    shift 1
+    runloop ${id:1} $*
+    exit
+fi
+
+pbcopy < /dev/null
+clipboard=`pbpaste -prefer txt`
+
+for x in $(eval echo "{1..$THREADS}") ; do
+    #runloop $x $1 $FIFO &
+    tab -t $0 -$x $1 $FIFO
+done
+
+spinfifo &
+sleep 1
+
+while true ; do
+    old_clipboard=$clipboard
+    clipboard=`pbpaste -prefer txt`
+    if [[ $clipboard != $old_clipboard && $clipboard != "" ]] ; then
+        echo
+        echo "[ QUEUE  ] $clipboard"
+        echo "$clipboard" >> $QUEUE
+        pbcopy < /dev/null
+    else sleep 1;
+    fi;
+done;
